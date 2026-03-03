@@ -1,77 +1,200 @@
 #include "motor_control.h"
-int l_pwm , r_pwm,integral_error,base_pwm=120;
-float kp=10,ki=0.5,total_error,proportional_error;
+#include "shared_state.h"
+#include <esp_timer.h>
 
-void motor_setup(){
-  ledcSetup(pwm_channel_mr_a , 5000, 8 ); //2^8 = 256 , 0-255
-  ledcSetup(pwm_channel_mr_b , 5000, 8 ); //2^8 = 256 , 0-255
-  ledcSetup(pwm_channel_ml_a , 5000, 8 ); //2^8 = 256 , 0-255
-  ledcSetup(pwm_channel_ml_b , 5000, 8 ); //2^8 = 256 , 0-255
+// ── Encoder counts — modified in ISR ─────────────────────────────────────────
+volatile long pos_L = 0;
+volatile long pos_R = 0;
 
-
-  ledcAttachPin(motor_right_a,pwm_channel_mr_a);
-  ledcAttachPin(motor_right_b,pwm_channel_mr_b);
-  ledcAttachPin(motor_left_a,pwm_channel_ml_a);
-  ledcAttachPin(motor_left_b,pwm_channel_ml_b);
+void IRAM_ATTR readEncoder_L() {
+    if (digitalRead(ENC_L_A) == digitalRead(ENC_L_B)) pos_L++;
+    else pos_L--;
+}
+void IRAM_ATTR readEncoder_R() {
+    if (digitalRead(ENC_R_A) == digitalRead(ENC_R_B)) pos_R++;
+    else pos_R--;
 }
 
-void forward(int speed) {
-  ledcWrite(pwm_channel_mr_a, speed);
-  ledcWrite(pwm_channel_ml_a, speed);
-  ledcWrite(pwm_channel_mr_b, 0);
-  ledcWrite(pwm_channel_ml_b, 0);
+// ── Slow decay — ch0=R_IN1, ch1=R_IN2, ch2=L_IN1, ch3=L_IN2 ─────────────────
+void setMotor_L(float val) {
+    int output = constrain((int)val, -255, 255);
+    if (abs(output) < MIN_PWM) {
+        ledcWrite(2, 255); ledcWrite(3, 255);
+        return;
+    }
+    if (output >= 0) {
+        ledcWrite(2, 255); ledcWrite(3, 255 - output);
+    } else {
+        ledcWrite(2, 255 - abs(output)); ledcWrite(3, 255);
+    }
 }
 
-void reverse(int speed) {
-  ledcWrite(pwm_channel_mr_b, speed);
-  ledcWrite(pwm_channel_ml_b, speed);
-  ledcWrite(pwm_channel_mr_a, 0);
-  ledcWrite(pwm_channel_ml_a, 0);
+void setMotor_R(float val) {
+    int output = constrain((int)val, -255, 255);
+    if (abs(output) < MIN_PWM) {
+        ledcWrite(0, 255); ledcWrite(1, 255);
+        return;
+    }
+    if (output >= 0) {
+        ledcWrite(0, 255); ledcWrite(1, 255 - output);
+    } else {
+        ledcWrite(0, 255 - abs(output)); ledcWrite(1, 255);
+    }
 }
 
-void stop() {
-  ledcWrite(pwm_channel_mr_a, 0);
-  ledcWrite(pwm_channel_ml_a, 0);
-  ledcWrite(pwm_channel_mr_b, 0);
-  ledcWrite(pwm_channel_ml_b, 0);
+void motors_wake()  { digitalWrite(DRV_SLEEP, HIGH); }
+void motors_sleep() { digitalWrite(DRV_SLEEP, LOW);  }
+
+// ── Servo helpers ─────────────────────────────────────────────────────────────
+// 50Hz 16-bit: period=20000us, 65535 ticks
+// 500us  → 1638 ticks (0 deg)
+// 2500us → 8191 ticks (180 deg)
+static uint32_t angleToTicks(float angle_deg) {
+    float pulse_us = SERVO_PULSE_MIN_US +
+                     (angle_deg / 180.0f) * (SERVO_PULSE_MAX_US - SERVO_PULSE_MIN_US);
+    return (uint32_t)((pulse_us / 20000.0f) * 65535);
 }
 
-void right(int speed) {
-  ledcWrite(pwm_channel_mr_a, 0);
-  ledcWrite(pwm_channel_ml_a, speed);
-  ledcWrite(pwm_channel_mr_b, 0);
-  ledcWrite(pwm_channel_ml_b, 0);
+// Servo 1 — limits 10-160deg, default 90deg
+void set_servo_1(float angle_deg) {
+    angle_deg = constrain(angle_deg, SERVO_1_MIN, SERVO_1_MAX);
+    ledcWrite(PWM_CH_SERVO_1, angleToTicks(angle_deg));
 }
 
-void left(int speed) {
-  ledcWrite(pwm_channel_mr_a, speed);
-  ledcWrite(pwm_channel_ml_a, 0);
-  ledcWrite(pwm_channel_mr_b, 0);
-  ledcWrite(pwm_channel_ml_b, 0);
+// Servo 2 — limits 20-180deg, default 180deg
+void set_servo_2(float angle_deg) {
+    angle_deg = constrain(angle_deg, SERVO_2_MIN, SERVO_2_MAX);
+    ledcWrite(PWM_CH_SERVO_2, angleToTicks(angle_deg));
 }
 
-std::pair<int,int> error_motor_drive(int error){
-  // Dynamic Speed Adjustment
-  int dynamic_base_pwm = base_pwm;
-  if(abs(error) == 0) {  // For faster straight Line Movement
-    dynamic_base_pwm = base_pwm + 120;
-  }
+void servo_setup() {
+    ledcSetup(PWM_CH_SERVO_1, 50, 16);
+    ledcSetup(PWM_CH_SERVO_2, 50, 16);
+    ledcAttachPin(SERVO_1_PIN, PWM_CH_SERVO_1);
+    ledcAttachPin(SERVO_2_PIN, PWM_CH_SERVO_2);
 
-  integral_error = constrain(integral_error + error, -100, 100);
-  integral_error = ki * integral_error;
-  proportional_error = kp * error;
-  total_error = proportional_error + integral_error;
+    set_servo_1(SERVO_1_DEFAULT);  // 90deg
+    set_servo_2(SERVO_2_DEFAULT);  // 180deg
 
-  l_pwm =  dynamic_base_pwm - total_error;
-  r_pwm = dynamic_base_pwm + total_error;
+    Serial.print("Servo 1 → "); Serial.print(SERVO_1_DEFAULT);
+    Serial.print("deg  limits("); Serial.print(SERVO_1_MIN);
+    Serial.print("-"); Serial.print(SERVO_1_MAX); Serial.println("deg)");
 
-  l_pwm = constrain(l_pwm+5, 70, 255);
-  r_pwm = constrain(r_pwm, 70, 255);
+    Serial.print("Servo 2 → "); Serial.print(SERVO_2_DEFAULT);
+    Serial.print("deg  limits("); Serial.print(SERVO_2_MIN);
+    Serial.print("-"); Serial.print(SERVO_2_MAX); Serial.println("deg)");
+}
 
-  ledcWrite(pwm_channel_mr_a, r_pwm);
-  ledcWrite(pwm_channel_ml_a, l_pwm);
-  ledcWrite(pwm_channel_mr_b, 0);
-  ledcWrite(pwm_channel_ml_b, 0);
+// ── Motor setup ───────────────────────────────────────────────────────────────
+void motor_setup() {
+    pinMode(DRV_SLEEP, OUTPUT);
+    motors_wake();
+    Serial.print("DRV_SLEEP pin state: ");
+    Serial.println(digitalRead(DRV_SLEEP));
 
-  return std::make_pair(l_pwm, r_pwm);
+    ledcSetup(0, 10000, 8); ledcAttachPin(MOTOR_R_IN1, 0);
+    ledcSetup(1, 10000, 8); ledcAttachPin(MOTOR_R_IN2, 1);
+    ledcSetup(2, 10000, 8); ledcAttachPin(MOTOR_L_IN1, 2);
+    ledcSetup(3, 10000, 8); ledcAttachPin(MOTOR_L_IN2, 3);
+
+    ledcWrite(0, 255); ledcWrite(1, 255);
+    ledcWrite(2, 255); ledcWrite(3, 255);
+
+    pinMode(ENC_L_A, INPUT_PULLUP); pinMode(ENC_L_B, INPUT_PULLUP);
+    pinMode(ENC_R_A, INPUT_PULLUP); pinMode(ENC_R_B, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(ENC_L_A), readEncoder_L, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENC_R_A), readEncoder_R, CHANGE);
+
+    last_cmd_time = esp_timer_get_time();
+
+    Serial.println("Motor setup done");
+}
+
+// ── Motor control task ────────────────────────────────────────────────────────
+void motor_control_task(void *arg) {
+    float filteredRPM_L = 0, integral_L = 0;
+    float filteredRPM_R = 0, integral_R = 0;
+    float rampedTarget_L = 0, rampedTarget_R = 0;
+
+    unsigned long lastPIDTime   = millis();
+    unsigned long lastRampTime  = millis();
+    unsigned long lastPrintTime = millis();
+
+    while(1) {
+        unsigned long now = millis();
+
+        if (now - lastRampTime >= 100) {
+            lastRampTime = now;
+            float tL = targetRPM_L;
+            float tR = targetRPM_R;
+
+            if (rampedTarget_L < tL)
+                rampedTarget_L = min(rampedTarget_L + RAMP_RATE, tL);
+            else if (rampedTarget_L > tL)
+                rampedTarget_L = max(rampedTarget_L - RAMP_RATE, tL);
+
+            if (rampedTarget_R < tR)
+                rampedTarget_R = min(rampedTarget_R + RAMP_RATE, tR);
+            else if (rampedTarget_R > tR)
+                rampedTarget_R = max(rampedTarget_R - RAMP_RATE, tR);
+        }
+
+        if (now - lastPIDTime >= PID_INTERVAL) {
+            float dt = (now - lastPIDTime) / 1000.0f;
+            lastPIDTime = now;
+
+            int64_t gap = esp_timer_get_time() - last_cmd_time;
+            if (gap > 500000) {
+                targetRPM_L    = 0.0f; targetRPM_R    = 0.0f;
+                rampedTarget_L = 0.0f; rampedTarget_R = 0.0f;
+                integral_L     = 0.0f; integral_R     = 0.0f;
+            }
+
+            noInterrupts();
+            long count_L = pos_L; pos_L = 0;
+            long count_R = pos_R; pos_R = 0;
+            interrupts();
+
+            float rawRPM_L = (count_L / COUNTS_PER_REV) / dt * 60.0f;
+            float rawRPM_R = (count_R / COUNTS_PER_REV) / dt * 60.0f;
+
+            filteredRPM_L = (ALPHA_RPM * rawRPM_L) + ((1.0f - ALPHA_RPM) * filteredRPM_L);
+            filteredRPM_R = (ALPHA_RPM * rawRPM_R) + ((1.0f - ALPHA_RPM) * filteredRPM_R);
+
+            float error_L = rampedTarget_L - filteredRPM_L;
+            float error_R = rampedTarget_R - filteredRPM_R;
+
+            if (abs(error_L) > 5.0f)
+                integral_L = constrain(integral_L + error_L * dt, -100.0f, 100.0f);
+            else
+                integral_L *= 0.95f;
+
+            if (abs(error_R) > 5.0f)
+                integral_R = constrain(integral_R + error_R * dt, -100.0f, 100.0f);
+            else
+                integral_R *= 0.95f;
+
+            float pidOut_L = (KP * error_L) + (KI * integral_L);
+            float pidOut_R = (KP * error_R) + (KI * integral_R);
+
+            setMotor_L(pidOut_L);
+            setMotor_R(pidOut_R);
+
+            if (now - lastPrintTime >= 2000) {
+                lastPrintTime = now;
+                Serial.println("── Motor ──");
+                Serial.print("  Target  L:"); Serial.print(targetRPM_L);
+                Serial.print(" R:");          Serial.println(targetRPM_R);
+                Serial.print("  Ramped  L:"); Serial.print(rampedTarget_L);
+                Serial.print(" R:");          Serial.println(rampedTarget_R);
+                Serial.print("  Filt    L:"); Serial.print(filteredRPM_L);
+                Serial.print(" R:");          Serial.println(filteredRPM_R);
+                Serial.print("  PIDOut  L:"); Serial.print(pidOut_L);
+                Serial.print(" R:");          Serial.println(pidOut_R);
+                Serial.print("  WD gap ms:"); Serial.println((long)(gap / 1000));
+            }
+        }
+
+        vTaskDelay(1);
+    }
 }
