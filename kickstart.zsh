@@ -3,10 +3,10 @@
 #
 # Opens (skips if already running):
 #   1. micro-ROS agent        (ESP32 ↔ ROS 2 bridge — start first)
-#   2. workspace_tracker      (AprilTag pose + red object detection)
-#   3. camera_controller      (trajectory regulator + service servers)
-#   4. motor_debug echo       (/motor_debug telemetry)
-#   5. cmd_vel echo           (/cmd_vel verification)
+#   2. camera_controller      (trajectory regulator + service servers;
+#                              WorkspaceTracker runs inside as a background thread)
+#   3. motor_debug echo       (/motor_debug telemetry)
+#   4. cmd_vel echo           (/cmd_vel verification)
 #
 # After launching, open FSM.slx in MATLAB, connect External mode,
 # and toggle run_enable to begin the pick-and-place cycle.
@@ -57,22 +57,18 @@ sleep 2
 source "$ROS_SETUP" 2>/dev/null
 ros2 daemon stop 2>/dev/null; ros2 daemon start 2>/dev/null
 
-# 2. Vision node — AprilTag pose estimation + red object detection
-open_term "Workspace Tracker" \
-    "workspace_tracker.py" \
-    "cd $PROJECT_DIR && $PYTHON workspace_tracker.py -c $CAMERA"
-
-# 3. Trajectory regulator + pick/drop service servers (driven by Simulink)
+# 2. Trajectory regulator + pick/drop service servers (driven by Simulink)
+#    WorkspaceTracker runs inside this node as a background thread
 open_term "Camera Controller" \
     "camera_controller_node.py" \
     "cd $PROJECT_DIR && $PYTHON camera_controller_node.py -c $CAMERA"
 
-# 4. Motor debug telemetry
+# 3. Motor debug telemetry
 open_term "Motor Debug" \
     "topic echo /motor_debug" \
     "ros2 topic echo /motor_debug"
 
-# 5. cmd_vel echo — verify commands are reaching the firmware
+# 4. cmd_vel echo — verify commands are reaching the firmware
 open_term "cmd_vel echo" \
     "topic echo /cmd_vel" \
     "ros2 topic echo /cmd_vel"
