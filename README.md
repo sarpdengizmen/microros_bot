@@ -6,6 +6,10 @@ A differential-drive robot that autonomously locates a red object in a flat work
   <img src="pictures/RobotImage.JPEG" width="600" alt="Robot"/>
 </p>
 
+<p align="center">
+  <video src="Operation_Video.mp4" width="600" controls></video>
+</p>
+
 ---
 
 ## System Overview
