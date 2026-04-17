@@ -8,7 +8,7 @@ A differential-drive robot that autonomously locates a red object in a flat work
 
 <p align="center">
   <a href="https://drive.google.com/file/d/10JgejLTWeq-hDfisjdsCzlonVPptlmfZ/view?usp=drive_link">
-    <img src="pictures/SetupImage.JPEG" width="600" alt="Watch operation video"/>
+    <img src="pictures/ImageOutput.png" width="600" alt="Watch operation video"/>
   </a>
   <br><em>Click to watch the operation video</em>
 </p>
