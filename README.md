@@ -18,11 +18,6 @@ The system is split across three tiers that communicate over ROS 2:
 | **PC Python nodes** | ROS 2 / OpenCV | Vision pipeline, pose estimation, trajectory regulation |
 | **MATLAB / Simulink** | Stateflow | High-level pick-and-place state machine |
 
-```
- Simulink ──/target_pose──▶ Python ──/cmd_vel──▶ ESP32
- Simulink ◀─/object_stable─ Python ◀─/motor_debug─ ESP32
- Simulink ──/pickup srv──▶ Python ──/servo/cmd──▶ ESP32
-```
 
 The micro-ROS Agent bridges WiFi UDP ↔ DDS between the ESP32 and the PC ROS 2 network.
 
@@ -79,59 +74,6 @@ Four AprilTag corners (IDs 0–3) are taped to a 790 × 730 mm mat and define th
 - **Robot pose**: AprilTag ID 4 → ray-plane intersection at 115 mm height + `cv2.solvePnP` for yaw
 - **Object detection**: HSV red mask (hue 0–10 ∪ 170–180), `minAreaRect`, approach pose set 130 mm from blob centroid along short axis
 - **Stability gate**: 15 consecutive frames within ±15 mm and ±0.1 rad before signalling Simulink
-
----
-
-## Control
-
-### Motor PI loop — ESP32 (20 ms, Core 1)
-
-Feed-forward + PI with ramp limiting and integral windup protection:
-
-```
-ramped_target += clamp(RAMP_RATE, target - ramped_target)
-error          = ramped_target - rpm_filtered
-integral      += error * dt   (clamped)
-pwm            = KF * ramped_target + KP * error + KI * integral
-```
-
-Default gains: `KP = 3.0`, `KI = 1.0`, `KF = 0.9` — live-tunable via `/pid_gains`. Watchdog zeros targets if no `/cmd_vel` for 2 s.
-
-<p align="center">
-  <img src="pictures/step_response.png" width="680" alt="Motor step-response — measured RPM tracks target within one control cycle"/>
-</p>
-
-### Polar posture regulator — PC Python (20 Hz)
-
-`camera_controller_node.py` runs a polar posture regulator to drive the robot to goal poses:
-
-```
-rho   = distance to goal
-alpha = bearing of goal in robot frame
-beta  = final-heading error
-
-v = K1 * rho * cos(alpha)          # K1 = 1.0
-w = K2 * alpha + K1 * sin(alpha) * cos(alpha) * (alpha + K3 * beta) / alpha
-                                    # K2 = 2.0, K3 = 4.0
-```
-
-Saturations: `v_max = 0.1 m/s`, `ω_max = 1.5 rad/s`. Goal tolerance: 50 mm / 0.1 rad.
-
----
-
-## Pick-and-Place Trajectory
-
-<p align="center">
-  <img src="pictures/pickplace_trajectory.png" width="620" alt="Pick-and-place cycle — trajectory in world frame coloured by speed"/>
-</p>
-
-The Simulink Stateflow chart (`FSM.slx`) orchestrates the six-state cycle:
-
-```
-IDLE → STABILIZING → MOVING_TO_OBJECT → PICKING_UP → MOVING_TO_DROPOFF → DROPPING → IDLE
-```
-
-Drop-off pose is fixed at `(x = 0.30 m, y = −0.05 m, yaw = −π/2)`.
 
 ---
 
