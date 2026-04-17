@@ -1,6 +1,7 @@
 #include "ros_communication.h"
 #include "motor_control.h"
 #include "shared_state.h"
+#include "wifi_config.h"
 #include <stdio.h>
 
 // ── micro-ROS entities ────────────────────────────────────────────────────────
@@ -39,14 +40,11 @@ RosCommunication::RosCommunication() : state_(WAITING_AGENT) {}
 
 // ── One-time WiFi + transport setup ──────────────────────────────────────────
 void RosCommunication::initialize() {
-    // char wifi_ssid[]     = "laptop";
-    // char wifi_password[] = "connecthere";
-    // IPAddress agent_ip(10, 42, 0, 1);
-    char wifi_ssid[]     = "FASTWEB-9FKRUN";
-    char wifi_password[] = "2H9RYCT4NG";
-    IPAddress agent_ip(192, 168, 1, 65);
+    char wifi_ssid[]     = WIFI_SSID;
+    char wifi_password[] = WIFI_PASSWORD;
+    IPAddress agent_ip(AGENT_IP);
 
-    set_microros_wifi_transports(wifi_ssid, wifi_password, agent_ip, 8888);
+    set_microros_wifi_transports(wifi_ssid, wifi_password, agent_ip, AGENT_PORT);
 
     Serial.print("Connecting to WiFi");
     unsigned long t0 = millis();

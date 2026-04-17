@@ -1,0 +1,7 @@
+#pragma once
+
+// Copy this file to wifi_config.h and fill in your values before flashing.
+#define WIFI_SSID     "YOUR_SSID"
+#define WIFI_PASSWORD "YOUR_PASSWORD"
+#define AGENT_IP      192, 168, x, x   // micro-ROS agent PC IP
+#define AGENT_PORT    8888
