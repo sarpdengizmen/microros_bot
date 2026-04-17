@@ -1,6 +1,5 @@
 #include "motor_control.h"
 #include "shared_state.h"
-#include <esp_timer.h>
 
 // ── Encoder counts — modified in ISR ─────────────────────────────────────────
 volatile long pos_L = 0;
@@ -19,7 +18,7 @@ void IRAM_ATTR readEncoder_R() {
 void setMotor_L(float val) {
     int output = constrain((int)val, -255, 255);
     if (abs(output) < MIN_PWM) {
-        ledcWrite(2, 255); ledcWrite(3, 255);
+        ledcWrite(2, 0); ledcWrite(3, 0);  // coast — avoids abrupt braking oscillation
         return;
     }
     if (output >= 0) {
@@ -32,7 +31,7 @@ void setMotor_L(float val) {
 void setMotor_R(float val) {
     int output = constrain((int)val, -255, 255);
     if (abs(output) < MIN_PWM) {
-        ledcWrite(0, 255); ledcWrite(1, 255);
+        ledcWrite(0, 0); ledcWrite(1, 0);  // coast — avoids abrupt braking oscillation
         return;
     }
     if (output >= 0) {
@@ -105,7 +104,7 @@ void motor_setup() {
     attachInterrupt(digitalPinToInterrupt(ENC_L_A), readEncoder_L, CHANGE);
     attachInterrupt(digitalPinToInterrupt(ENC_R_A), readEncoder_R, CHANGE);
 
-    last_cmd_time = esp_timer_get_time();
+    last_cmd_time = millis();
 
     Serial.println("Motor setup done");
 }
@@ -123,7 +122,7 @@ void motor_control_task(void *arg) {
     while(1) {
         unsigned long now = millis();
 
-        if (now - lastRampTime >= 100) {
+        if (now - lastRampTime >= 20) {
             lastRampTime = now;
             float tL = targetRPM_L;
             float tR = targetRPM_R;
@@ -143,8 +142,8 @@ void motor_control_task(void *arg) {
             float dt = (now - lastPIDTime) / 1000.0f;
             lastPIDTime = now;
 
-            int64_t gap = esp_timer_get_time() - last_cmd_time;
-            if (gap > 500000) {
+            uint32_t gap_ms = millis() - last_cmd_time;
+            if (gap_ms > 2000) {
                 targetRPM_L    = 0.0f; targetRPM_R    = 0.0f;
                 rampedTarget_L = 0.0f; rampedTarget_R = 0.0f;
                 integral_L     = 0.0f; integral_R     = 0.0f;
@@ -174,24 +173,32 @@ void motor_control_task(void *arg) {
             else
                 integral_R *= 0.95f;
 
-            float pidOut_L = (KP * error_L) + (KI * integral_L);
-            float pidOut_R = (KP * error_R) + (KI * integral_R);
+            float pidOut_L = (KF_live * rampedTarget_L) + (KP_live * error_L) + (KI_live * integral_L);
+            float pidOut_R = (KF_live * rampedTarget_R) + (KP_live * error_R) + (KI_live * integral_R);
+
+            actual_rpm_L = filteredRPM_L;
+            actual_rpm_R = filteredRPM_R;
+            pid_out_L    = pidOut_L;
+            pid_out_R    = pidOut_R;
 
             setMotor_L(pidOut_L);
             setMotor_R(pidOut_R);
 
             if (now - lastPrintTime >= 2000) {
                 lastPrintTime = now;
-                Serial.println("── Motor ──");
-                Serial.print("  Target  L:"); Serial.print(targetRPM_L);
-                Serial.print(" R:");          Serial.println(targetRPM_R);
-                Serial.print("  Ramped  L:"); Serial.print(rampedTarget_L);
-                Serial.print(" R:");          Serial.println(rampedTarget_R);
-                Serial.print("  Filt    L:"); Serial.print(filteredRPM_L);
-                Serial.print(" R:");          Serial.println(filteredRPM_R);
-                Serial.print("  PIDOut  L:"); Serial.print(pidOut_L);
-                Serial.print(" R:");          Serial.println(pidOut_R);
-                Serial.print("  WD gap ms:"); Serial.println((long)(gap / 1000));
+                if (xSemaphoreTake(serial_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+                    Serial.println("── Motor ──");
+                    Serial.print("  Target  L:"); Serial.print(targetRPM_L);
+                    Serial.print(" R:");          Serial.println(targetRPM_R);
+                    Serial.print("  Ramped  L:"); Serial.print(rampedTarget_L);
+                    Serial.print(" R:");          Serial.println(rampedTarget_R);
+                    Serial.print("  Filt    L:"); Serial.print(filteredRPM_L);
+                    Serial.print(" R:");          Serial.println(filteredRPM_R);
+                    Serial.print("  PIDOut  L:"); Serial.print(pidOut_L);
+                    Serial.print(" R:");          Serial.println(pidOut_R);
+                    Serial.print("  WD gap ms:"); Serial.println(gap_ms);
+                    xSemaphoreGive(serial_mutex);
+                }
             }
         }
 

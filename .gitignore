@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+.venv/
+.python-version
+*.pyc
+
+# MATLAB / Simulink
+slprj/
+*.slx.autosave
+*.slxc
+*.mat
+untitled2.m
+
+# LaTeX build artifacts
+*.aux
+*.fls
+*.fdb_latexmk
+*.log
+*.out
+*.synctex.gz
+*.pdf
+*.tex
+report_template.tex
+
+# Docs / AI tooling
+CLAUDE.md
+CODEBASE.md
+SIMULINK_AUTOMATION.md
+
+# Deprecated nodes
+automation_node.py
+
+# Test scripts and outputs
+step_test.py
+plot_step.py
+plot_pickplace.py
+step_bag/
+pickplace_bag/
+pickplace_odometry.png
+pickplace_timeseries.png
+
+# IDE / editor
+microROS_bot/MicroROS-ESP32-WiFi-Controlled-Robot.code-workspace
+.vscode/
+
+# PlatformIO build cache
+microROS_bot/.pio/

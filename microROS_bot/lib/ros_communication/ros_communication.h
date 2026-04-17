@@ -10,15 +10,20 @@
 class RosCommunication {
     public:
         RosCommunication();
-        void initialize();
-        void subscriber_define();
-        void publisher_define();
+        void initialize();           // one-time WiFi + transport setup
+        void start_receiving_msgs(); // call from loop() — handles reconnection
+
         static void cmd_vel_callback(const void *msg_recv);
         static void servo_callback(const void *msg_recv);
-        void start_receiving_msgs();
-        void executors_start();
+        static void pid_gains_callback(const void *msg_recv);
         void publish_debug();
 
     private:
+        enum State { WAITING_AGENT, AGENT_CONNECTED };
+        State state_;
+
+        bool create_entities();
+        void destroy_entities();
+
         static unsigned long lastCbPrint;
 };

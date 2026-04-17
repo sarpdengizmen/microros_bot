@@ -34,11 +34,10 @@
 #define SERVO_PULSE_MAX_US  2500
 
 // ── PI Tuning ────────────────────────────────────────────────────────────────
+// KP, KI, KF live in shared_state — tunable at runtime via /pid_gains [kp, ki, kf]
 const float COUNTS_PER_REV = 420.0f;
-const float KP             = 2.0f;
-const float KI             = 0.5f;
-const float ALPHA_RPM      = 0.1f;
-const float RAMP_RATE      = 20.0f;
+const float ALPHA_RPM      = 0.4f;   // RPM filter weight — higher = faster response, more noise
+const float RAMP_RATE      = 20.0f;  // RPM/step — path generator already smooths; this just limits step discontinuities
 const int   MIN_PWM        = 40;
 const int   PID_INTERVAL   = 20;
 
