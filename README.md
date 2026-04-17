@@ -140,10 +140,7 @@ Or manually in order:
 # Terminal 1 — micro-ROS bridge
 ros2 run micro_ros_agent micro_ros_agent udp4 --port 8888
 
-# Terminal 2 — vision
-python3 workspace_tracker.py --camera 0
-
-# Terminal 3 — trajectory + services
+# Terminal 2 — vision + trajectory + services (workspace_tracker runs inside)
 python3 camera_controller_node.py --camera 0
 ```
 
